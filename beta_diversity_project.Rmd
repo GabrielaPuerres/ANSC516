@@ -1,0 +1,545 @@
+---
+title: "Beta_diversity"
+author: "Gabriela Puerres"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Beta Diversity
+
+Libraries and packages
+
+```{r}
+#Install the packages, IF YOU NEED TO :)
+# install.packages("tidyverse")
+# install.packages("vegan")
+# install.packages("devtools")
+library(devtools)
+#devtools::install_github("jbisanz/qiime2R")
+library(tidyverse)
+library(vegan)
+library(qiime2R)
+
+
+##############################################
+#Set UP
+#
+#These are the things that  we need from Qiime:
+#
+#sample-metadata.tsv
+#core-metrics-results-240bp/bray_curtis_pcoa_results.qza
+#core-metrics-results-240bp/weighted_unifrac_pcoa_results.qza
+#core-metrics-results-240bp/rarefied_table.qza
+#rooted-tree.qza
+#taxonomy.qza
+#core-metrics-results-240bp/evenness_vector.qza
+#core-metrics-results-240bp/faith_pd_vector.qza
+#core-metrics-results-240bp/observed_otus_vector.qza
+#core-metrics-results-240bp/shannon_vector.qza
+#
+# These files are already in the ANSC516-repo
+##############################################
+
+getwd()
+###Set your working directory path/to/ANSC516/ANSC-repo/data/moving-pictures
+#setwd("C:/Users/diana/OneDrive/Escritorio/ANSC516-repo/data/moving-pictures")
+setwd("/depot/islizovs/shared/projects/Cow_Inflammation_Study_Blood_Slizovskiy_Project_004/07_QIIME2")
+getwd()
+
+list.files()
+
+if(!dir.exists("output"))
+  dir.create("output")
+```
+
+```{r meta}
+
+#How to load a file into R
+metadata2 <- read.delim("QIIME2_Blood_Metadata_02.27.26.txt", sep = "\t", header = T, quote = "", stringsAsFactors = F)
+metadata2[1,]
+metadata2[,1]
+# When subsetting, the first number is the row and after the comma is the column
+metadata2 <- metadata2[-1,]
+
+#Now the qiime2R method
+metadata <- read_q2metadata("QIIME2_Blood_Metadata_02.27.26.txt")
+str(metadata)
+levels(metadata$`Sample_Type`)
+colnames(metadata)[5] <- "DIM_Collected"
+colnames(metadata)[7] <- "Sample_Type"
+colnames(metadata)[10] <- "Parity"
+colnames(metadata)[15] <- "Fibrinogen_InflamStat"
+colnames(metadata)[21] <- "Haptoglobin_InflamStat"
+colnames(metadata)[22] <- "ExtractionDate"
+colnames(metadata)[23] <- "qpcr_16s_copies_ul"
+
+str(metadata)
+
+row.names(metadata) <- metadata[,1]
+#row.names(metadata) <- metadata$SampleID
+row.names(metadata)
+
+bc_PCoA<-read_qza("core-metrics-results-240bp/bray_curtis_pcoa_results.qza")
+wUF <- read_qza("core-metrics-results-240bp/weighted_unifrac_pcoa_results.qza")
+Jaccard <-  read_qza("core-metrics-results-240bp/jaccard_pcoa_results.qza")
+UwUF <- read_qza("core-metrics-results-240bp/unweighted_unifrac_pcoa_results.qza")
+
+### Colors
+Sample_Type <- c("Black", "Blue", "lightblue", "yellow",  "Green", "Gray")
+Haptoglobin_InflamStat <- c("Red", "Blue")
+Fibrinogen_InflamStat <- c("Red", "Blue")
+```
+
+```{r bc-hp}
+#================ plots for Bray-Curtis 
+bc_meta <- bc_PCoA$data$Vectors %>%
+  select(SampleID, PC1, PC2, PC3) %>%
+  inner_join(metadata, by = c("SampleID" = "SampleID"))
+
+head(bc_meta)
+
+# meta for Blood samples:
+bc_meta_blood <- bc_meta %>%
+  dplyr::filter(Sample_Type == "Blood")
+
+# Now we are going to make an ordination plot
+ggplot(bc_meta, aes(x=PC1, y=PC2, color=Sample_Type)) +
+  geom_point() + #alpha controls transparency and helps when points are overlapping
+  theme_q2r() +
+  xlab("PC1 (32.27%)") +
+  ylab("PC2 (22.28%)") +
+  scale_color_manual(values=c("Black", "Blue", "red", "yellow",  "Green", "Gray"), name = "Sample_Type")
+
+# Now we are going to make our code a little more re-usable
+Inflammation_colors <- c("blue", "red")
+
+# DIM 
+my_column <- "DIM_Collected"
+ggplot(bc_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point() + #alpha controls transparency and helps when points are overlapping
+  theme_q2r() +
+  facet_grid(~Haptoglobin_InflamStat) +
+  xlab(paste0("PC1 (", round(100*bc_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*bc_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = my_column)
+ggsave(paste0("output/BC-basic_", my_column,".tiff"), height=2, width=3, device="tiff") # save a PDF 3 inches by 4 inches
+
+
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),bc_meta_blood,mean)
+colnames(centroids)[1] <- "DIM_Collected"
+
+ggplot(bc_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point() + 
+  geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*bc_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*bc_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = my_column)
+ggsave(paste0("output/BC-ellipse_", my_column,".pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+ggplot(bc_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= Haptoglobin_InflamStat)) + 
+  geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*bc_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*bc_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = my_column)
+ggsave(paste0("output/BC-ellipse_", my_column,"-Haptoglobin_InflamStat.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+```
+
+```{r bray-curtis-fib}
+# Fibrinogen
+# DIM 
+my_column <- "DIM_Collected"
+ggplot(bc_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point() + #alpha controls transparency and helps when points are overlapping
+  theme_q2r() +
+  facet_grid(~Fibrinogen_InflamStat) +
+  xlab(paste0("PC1 (", round(100*bc_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*bc_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = my_column)
+ggsave(paste0("output/BC-basic_Fibrinogen", my_column,".tiff"), height=2, width=3, device="tiff") # save a PDF 3 inches by 4 inches
+
+
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),bc_meta_blood,mean)
+colnames(centroids)[1] <- "DIM_Collected"
+
+ggplot(bc_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point() + 
+  geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*bc_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*bc_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = my_column)
+ggsave(paste0("output/BC-ellipse_Fibrinogen", my_column,".pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+ggplot(bc_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= Haptoglobin_InflamStat)) + 
+  geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*bc_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*bc_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = my_column)
+ggsave(paste0("output/BC-ellipse_Fibrinogen", my_column,"-Fibrinogen_InflamStat.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+```
+
+## Weighted UniFrac
+```{r Wuni-hap}
+Wuni_PCoA<-read_qza("core-metrics-results-240bp/weighted_unifrac_pcoa_results.qza")
+
+Wuni_meta <- Wuni_PCoA$data$Vectors %>%
+  select(SampleID, PC1, PC2) %>%
+  inner_join(metadata, by = c("SampleID" = "SampleID"))
+
+Wuni_meta_blood <- Wuni_meta %>%
+  dplyr::filter(Sample_Type == "Blood")
+
+# Haptoglobin -----------------------------
+my_column <- "Haptoglobin_InflamStat"
+  
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),Wuni_meta_blood,mean)
+
+ggplot(Wuni_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point() + #alpha controls transparency and helps when points are overlapping
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*Wuni_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*Wuni_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Haptoglobin")
+ggsave(paste0("output/Wuni-ellipse_Hp", my_column,".pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+ggplot(Wuni_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= DIM_Collected), size = 3) + #alpha controls transparency and helps when points are overlapping
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*Wuni_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*Wuni_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Haptoglobin")
+ggsave(paste0("output/Wuni-ellipse_Hp", my_column,"-subject.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+# Fibrinogen -------------------
+my_column <- "Fibrinogen_InflamStat"
+  
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),Wuni_meta_blood,mean)
+
+ggplot(Wuni_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point() + #alpha controls transparency and helps when points are overlapping
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*Wuni_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*Wuni_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Fibrinogen")
+ggsave(paste0("output/Wuni-ellipse_Hp", my_column,".pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+ggplot(Wuni_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= DIM_Collected), size = 3) + #alpha controls transparency and helps when points are overlapping
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*Wuni_PCoA$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*Wuni_PCoA$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Fibrinogen")
+ggsave(paste0("output/Wuni-ellipse_Fibrinogen", my_column,"-subject.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+```
+
+### Unweighted UniFrac
+```{r}
+UwUF <- read_qza("core-metrics-results-240bp/unweighted_unifrac_pcoa_results.qza")
+
+UwUF_meta <- UwUF$data$Vectors %>%
+  select(SampleID, PC1, PC2) %>%
+  inner_join(metadata, by = c("SampleID" = "SampleID"))
+
+UwUF_meta_blood <- UwUF_meta %>%
+  dplyr::filter(Sample_Type == "Blood")
+
+# Haptoglobin ---------------------
+my_column <- "Haptoglobin_InflamStat"
+  
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),UwUF_meta_blood,mean)
+
+ggplot(UwUF_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= DIM_Collected), size = 3) + #alpha controls transparency and helps when points are overlapping
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*UwUF$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*UwUF$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Haptoglobin")
+ggsave(paste0("output/UwUF-ellipse_", my_column,"-DIM_Collected.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+# Haptoglobin ---------------------
+my_column <- "Fibrinogen_InflamStat"
+  
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),UwUF_meta_blood,mean)
+
+ggplot(UwUF_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= DIM_Collected), size = 3) + #alpha controls transparency and helps when points are overlapping
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*UwUF$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*UwUF$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Fibrinogen")
+ggsave(paste0("output/UwUF-ellipse_Fibrinogen", my_column,"-DIM_Collected_Fibrinogen.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+```
+
+
+### Jaccard
+```{r}
+Jaccard <-  read_qza("core-metrics-results-240bp/jaccard_pcoa_results.qza")
+
+Jaccard_meta <- Jaccard$data$Vectors %>%
+  select(SampleID, PC1, PC2) %>%
+  inner_join(metadata, by = c("SampleID" = "SampleID"))
+
+Jaccard_meta_blood <- Jaccard_meta %>%
+  dplyr::filter(Sample_Type == "Blood")
+
+# Haptoglobin ---------------------
+my_column <- "Haptoglobin_InflamStat"
+  
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),Jaccard_meta_blood,mean)
+
+
+ggplot(Jaccard_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= DIM_Collected), size = 3) + 
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*Jaccard$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*Jaccard$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Haptoglobin")
+ggsave(paste0("output/Jaccard-ellipse_", my_column,"-DIM_Collected.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+
+# Fibrinogen ---------------------
+my_column <- "Fibrinogen_InflamStat"
+  
+centroids <- aggregate(cbind(PC1,PC2)~get(my_column),Jaccard_meta_blood,mean)
+
+
+ggplot(Jaccard_meta_blood, aes(x=PC1, y=PC2, color=get(my_column))) +
+  geom_point(aes(shape= DIM_Collected), size = 3) + 
+  #geom_point(data=centroids, size = 3) +
+  theme_q2r() +
+  stat_ellipse(level = 0.95, type = "t") +
+  xlab(paste0("PC1 (", round(100*Jaccard$data$ProportionExplained[1], digits = 2), "%)")) +
+  ylab(paste0("PC2 (", round(100*Jaccard$data$ProportionExplained[2], digits = 2), "%)")) +
+  scale_color_manual(values=Inflammation_colors, name = "Inflammation Fibrinogen")
+ggsave(paste0("output/Jaccard-ellipse_", my_column,"-DIM_Collected_Fibrinogen.pdf"), height=3, width=4.5, device="pdf") # save a PDF 3 inches by 4 inches
+
+```
+
+## Permanova
+### Bray Curtis
+```{r}
+bc_dist_mat<-read_qza("core-metrics-results-240bp/bray_curtis_distance_matrix.qza")
+bc_dm <- as.matrix(bc_dist_mat$data) 
+rownames(bc_dm) == metadata$SampleID ## all these values need to be "TRUE"
+metadata_sub <- metadata[match(rownames(bc_dm),metadata$SampleID),]
+str(metadata_sub)
+rownames(bc_dm) == metadata_sub$SampleID ## all these values need to be "TRUE"
+
+
+PERMANOVA_out <- adonis2(bc_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/Haptoglobin_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE) 
+
+######################################################################################
+##  Pairwise adonis function
+##  we can also performe a pairwise comparison with the function 
+##  Pairwise Adonis funtion by edro Martinez Arbizu & Sylvain Monteux
+##  https://github.com/pmartinezarbizu/pairwiseAdonis/blob/master/pairwiseAdonis/R/pairwise.adonis.R
+#######################################################################################
+
+pairwise.adonis2 <- function(x, data, strata = NULL, nperm=999, ... ) {
+  
+  #describe parent call function 
+  ststri <- ifelse(is.null(strata),'Null',strata)
+  fostri <- as.character(x)
+  #list to store results
+  
+  #copy model formula
+  x1 <- x
+  # extract left hand side of formula
+  lhs <- x1[[2]]
+  # extract factors on right hand side of formula 
+  rhs <- x1[[3]]
+  # create model.frame matrix  
+  x1[[2]] <- NULL   
+  rhs.frame <- model.frame(x1, data, drop.unused.levels = TRUE) 
+  
+  # create unique pairwise combination of factors 
+  co <- combn(unique(as.character(rhs.frame[,1])),2)
+  
+  # create names vector   
+  nameres <- c('parent_call')
+  for (elem in 1:ncol(co)){
+    nameres <- c(nameres,paste(co[1,elem],co[2,elem],sep='_vs_'))
+  }
+  #create results list  
+  res <- vector(mode="list", length=length(nameres))
+  names(res) <- nameres
+  
+  #add parent call to res 
+  res['parent_call'] <- list(paste(fostri[2],fostri[1],fostri[3],', strata =',ststri, ', permutations',nperm ))
+  
+  
+  #start iteration trough pairwise combination of factors  
+  for(elem in 1:ncol(co)){
+    
+    #reduce model elements  
+    if(inherits(eval(lhs),'dist')){	
+      xred <- as.dist(as.matrix(eval(lhs))[rhs.frame[,1] %in% c(co[1,elem],co[2,elem]),
+                                           rhs.frame[,1] %in% c(co[1,elem],co[2,elem])])
+    }else{
+      xred <- eval(lhs)[rhs.frame[,1] %in% c(co[1,elem],co[2,elem]),]
+    }
+    
+    mdat1 <-  data[rhs.frame[,1] %in% c(co[1,elem],co[2,elem]),] 
+    
+    # redefine formula
+    if(length(rhs) == 1){
+      xnew <- as.formula(paste('xred',as.character(rhs),sep='~'))	
+    }else{
+      xnew <- as.formula(paste('xred' , 
+                               paste(rhs[-1],collapse= as.character(rhs[1])),
+                               sep='~'))}
+    
+    #pass new formula to adonis
+    if(is.null(strata)){
+      ad <- adonis2(xnew,data=mdat1, ... )
+    }else{
+      perm <- how(nperm = nperm)
+      setBlocks(perm) <- with(mdat1, mdat1[,ststri])
+      ad <- adonis2(xnew,data=mdat1,permutations = perm, ... )}
+    
+    res[nameres[elem+1]] <- list(ad[1:5])
+  }
+  #names(res) <- names  
+  class(res) <- c("pwadstrata", "list")
+  return(res)
+} 
+
+Haptoglobin_InflamStat_Pair <- pairwise.adonis2(bc_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+Haptoglobin_InflamStat_Pair
+write.table(Haptoglobin_InflamStat_Pair,"output/Haptoglobin_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+
+# Fibrinogen ----------------
+
+PERMANOVA_out <- adonis2(bc_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/Fibrinogen_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE) 
+
+Fibrinogen_InflamStat_Pair <- pairwise.adonis2(bc_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+Fibrinogen_InflamStat_Pair
+write.table(Fibrinogen_InflamStat_Pair,"output/Fibrinogen_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+
+
+```
+
+### Jaccard
+```{r}
+jaccard_dist_mat<-read_qza("core-metrics-results-240bp/jaccard_distance_matrix.qza")
+jaccard_dm <- as.matrix(jaccard_dist_mat$data) 
+rownames(jaccard_dm) == metadata$SampleID ## all these values need to be "TRUE"
+metadata_sub <- metadata[match(rownames(jaccard_dm),metadata$SampleID),]
+rownames(jaccard_dm) == metadata_sub$SampleID ## all these values need to be "TRUE"
+
+# Haptoglobin ----------------
+
+PERMANOVA_out <- adonis2(jaccard_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/jaccard_Haptoglobin_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE)
+
+Haptoglobin_InflamStat_Pair <- pairwise.adonis2(jaccard_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+Haptoglobin_InflamStat_Pair
+write.table(Haptoglobin_InflamState_Pair,"output/jaccard_Haptoglobin_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+
+# Fibrinogen ----------------
+
+PERMANOVA_out <- adonis2(jaccard_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/jaccard_Fibrinogen_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE)
+
+Fibrinogen_InflamStat_Pair <- pairwise.adonis2(jaccard_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+Fibrinogen_InflamStat_Pair
+write.table(Fibrinogen_InflamStat_Pair,"output/jaccard_Fibrinogen_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+
+```
+
+### Unweighted
+```{r}
+UnWU_dist_mat<-read_qza("core-metrics-results-240bp/unweighted_unifrac_distance_matrix.qza")
+UnWU_dm <- as.matrix(UnWU_dist_mat$data) 
+rownames(UnWU_dm) == metadata$SampleID ## all these values need to be "TRUE"
+metadata_sub <- metadata[match(rownames(UnWU_dm),metadata$SampleID),]
+rownames(UnWU_dm) == metadata_sub$SampleID ## all these values need to be "TRUE"
+
+# Haptoglobin ----------------
+
+PERMANOVA_out <- adonis2(UnWU_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/UnWU_Haptoglobin_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE)
+
+body.site_Pair <- pairwise.adonis2(UnWU_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+body.site_Pair
+write.table(body.site_Pair,"output/UnWU_Haptoglobin_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+
+# Fibrinogen ----------------
+
+PERMANOVA_out <- adonis2(UnWU_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/UnWU_Fibrinogen_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE)
+
+body.site_Pair <- pairwise.adonis2(UnWU_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+body.site_Pair
+write.table(body.site_Pair,"output/UnWU_Fibrinogen_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+
+```
+
+### Weighted
+```{r}
+wUF_dist_mat<-read_qza("core-metrics-results-240bp/weighted_unifrac_distance_matrix.qza")
+wUF_dm <- as.matrix(wUF_dist_mat$data) 
+rownames(wUF_dm) == metadata$SampleID ## all these values need to be "TRUE"
+metadata_sub <- metadata[match(rownames(wUF_dm),metadata$SampleID),]
+rownames(wUF_dm) == metadata_sub$SampleID ## all these values need to be "TRUE"
+
+# Haptoglobin ----------------
+
+PERMANOVA_out <- adonis2(wUF_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/wUF_Haptoglobin_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE)
+
+body.site_Pair <- pairwise.adonis2(wUF_dm ~ Haptoglobin_InflamStat, data = metadata_sub)
+body.site_Pair
+write.table(body.site_Pair,"output/wUF_Haptoglobin_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+
+# Fibrinogen ----------------
+
+PERMANOVA_out <- adonis2(wUF_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+PERMANOVA_out
+write.table(PERMANOVA_out,"output/wUF_Fibrinogen_InflamStat_Adonis_overall.csv",sep=",", row.names = TRUE)
+
+body.site_Pair <- pairwise.adonis2(wUF_dm ~ Fibrinogen_InflamStat, data = metadata_sub)
+body.site_Pair
+write.table(body.site_Pair,"output/wUF_Fibrinogen_InflamStat_Adonis_pairwise.csv",sep=",", row.names = TRUE) 
+```
+
