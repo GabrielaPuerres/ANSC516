@@ -1,0 +1,551 @@
+---
+title: "Taxa_barplots"
+author: "Gabriela Puerres"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Taxa barplots
+
+Libraries and packages
+
+```{r}
+#Install the packages, IF YOU NEED TO :)
+# install.packages("tidyverse")
+# install.packages("vegan")
+# install.packages("devtools")
+library(devtools)
+# devtools::install_github("jbisanz/qiime2R")
+library(tidyverse)
+library(vegan)
+library(qiime2R)
+library(ggpubr)
+library(phyloseq)
+library(zoo)
+
+##############################################
+#Set UP
+#
+#These are the things that  we need from Qiime:
+#
+#sample-metadata.tsv
+#core-metrics-results/bray_curtis_pcoa_results.qza
+#core-metrics-results/weighted_unifrac_pcoa_results.qza
+#core-metrics-results/rarefied_table.qza
+#rooted-tree.qza
+#taxonomy.qza
+#core-metrics-results/evenness_vector.qza
+#core-metrics-results/faith_pd_vector.qza
+#core-metrics-results/observed_otus_vector.qza
+#core-metrics-results/shannon_vector.qza
+#
+# These files are already in the ANSC516-repo
+##############################################
+
+getwd()
+###Set your working directory path/to/ANSC516/ANSC-repo/data/moving-pictures
+#setwd("C:/Users/diana/OneDrive/Escritorio/ANSC516-repo/data/moving-pictures")
+setwd("C:/Users/diana/OneDrive - purdue.edu/Master/Subjects/Spring 26/ANSC/PROJECT/7_QIIME2R/files")
+getwd()
+
+list.files()
+
+if(!dir.exists("output/taxa"))
+  dir.create("output/taxa")
+```
+
+```{r}
+#Importing the data
+##Qiime2r method of reading in the taxonomy, metadata and table files individually. 
+##Run these lines to troubleshoot if you have trouble on line 55.
+taxonomy<-read_qza("taxonomy-240bp.qza")
+head(taxonomy$data)
+# taxonomy_table<-parse_taxonomy(taxonomy$data)
+# head(rownames(taxonomy_table))
+
+metadata<-read_q2metadata("QIIME2_Blood_Metadata_02.27.26.txt")
+str(metadata)
+
+rare_table <- read_qza("core-metrics-results-240bp/rarefied_table.qza")
+feature_table <- rare_table$data
+head(rownames(feature_table))
+head(colnames(feature_table))
+
+##Qiime2R method of creating a phyloseq object
+physeq <- qza_to_phyloseq(
+  features="core-metrics-results-240bp/rarefied_table.qza",
+  tree="rooted-tree.qza",
+  taxonomy = "taxonomy-240bp.qza",
+  metadata = "QIIME2_Blood_Metadata_02.27.26.txt")
+physeq
+asv_table <- data.frame(otu_table(physeq), check.names = F)
+metadata <- data.frame(sample_data(physeq), check.names = F)
+taxonomy <- data.frame(tax_table(physeq), check.names = F)
+sum(rownames(taxonomy) %in% rownames(asv_table))
+
+#Clean up metadata, slightly
+meta <- metadata
+meta$Sample_ID <- rownames(metadata)
+levels(meta$Sample_ID)
+meta$Haptoglobin_InflamStat[meta$Haptoglobin_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Haptoglobin_InflamStat), ]
+meta$Haptoglobin_InflamStat <- droplevels(meta$Haptoglobin_InflamStat)
+levels(meta$Haptoglobin_InflamStat)
+table(meta$Haptoglobin_InflamStat)
+
+
+levels(meta$Fibrinogen_InflamStat)
+meta$Fibrinogen_InflamStat[meta$Fibrinogen_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Fibrinogen_InflamStat), ]
+meta$Fibrinogen_InflamStat <- droplevels(meta$Fibrinogen_InflamStat)
+levels(meta$Fibrinogen_InflamStat)
+table(meta$Fibrinogen_InflamStat)
+
+#Clean up taxonomy
+head(taxonomy)
+tax.clean <- taxonomy
+
+#All this is OK except that in future use of the taxonomy table, 
+#these ASVs designated as NA will be ignored because they are not classified. 
+#Why are ASVs not classified? Its because there is not a close enough 
+#match in the database. Just because there is not a good match in 
+#the database does not mean they don’t exist, so I wanted to make 
+#sure this data was not lost. So in my new code, from lines 200 – 224 
+#I make it so that ASVs that are unclassified at any level are 
+#classified as the lowest taxonomic level for which there is a 
+#classification.
+
+
+tax.clean[is.na(tax.clean)] <- ""
+for (i in 1:nrow(tax.clean)){
+  if (tax.clean[i,2] == ""){
+    kingdom <- paste("uncl_", tax.clean[i,1], sep = "")
+    tax.clean[i, 2:7] <- kingdom
+  } else if (tax.clean[i,3] == ""){
+    phylum <- paste("uncl_", tax.clean[i,2], sep = "")
+    tax.clean[i, 3:7] <- phylum
+  } else if (tax.clean[i,4] == ""){
+    class <- paste("uncl_", tax.clean[i,3], sep = "")
+    tax.clean[i, 4:7] <- class
+  } else if (tax.clean[i,5] == ""){
+    order <- paste("uncl_", tax.clean[i,4], sep = "")
+    tax.clean[i, 5:7] <- order
+  } else if (tax.clean[i,6] == ""){
+    family <- paste("uncl_", tax.clean[i,5], sep = "")
+    tax.clean[i, 6:7] <- family
+  } else if (tax.clean[i,7] == ""){
+    tax.clean$Species[i] <- paste("uncl_",tax.clean$Genus[i], sep = "_")
+  }
+}
+
+
+```
+## Plot for fibrinogen: 
+
+```{r}
+# -----------------------------
+# 1. Build phyloseq object
+# -----------------------------
+physeq <- qza_to_phyloseq(
+  features = "core-metrics-results-240bp/rarefied_table.qza",
+  tree = "rooted-tree.qza",
+  taxonomy = "taxonomy-240bp.qza",
+  metadata = "QIIME2_Blood_Metadata_02.27.26.txt"
+)
+
+physeq
+
+# -----------------------------
+# 2. Extract tables
+# -----------------------------
+asv_table <- as.data.frame(otu_table(physeq), check.names = FALSE)
+taxonomy  <- as.data.frame(tax_table(physeq), check.names = FALSE)
+
+meta <- as.data.frame(sample_data(physeq))
+meta$Sample_ID <- rownames(meta)
+
+# -----------------------------
+# 3. Clean metadata
+# -----------------------------
+meta$Haptoglobin_InflamStat[meta$Haptoglobin_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Haptoglobin_InflamStat), ]
+meta$Haptoglobin_InflamStat <- droplevels(meta$Haptoglobin_InflamStat)
+
+meta$Fibrinogen_InflamStat[meta$Fibrinogen_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Fibrinogen_InflamStat), ]
+meta$Fibrinogen_InflamStat <- droplevels(meta$Fibrinogen_InflamStat)
+
+# -----------------------------
+# 4. Clean taxonomy
+# -----------------------------
+taxonomy[taxonomy == ""] <- NA
+
+tax.clean <- taxonomy
+tax.clean$Genus[is.na(tax.clean$Genus)] <- "Unassigned"
+tax.clean$Species[is.na(tax.clean$Species)] <- tax.clean$Genus[is.na(tax.clean$Species)]
+
+# -----------------------------
+# 5. Build phyloseq object
+# -----------------------------
+OTU.physeq <- otu_table(as.matrix(asv_table), taxa_are_rows = TRUE)
+tax.physeq <- tax_table(as.matrix(tax.clean))
+meta.physeq <- sample_data(meta)
+
+physeq_bar_plot <- phyloseq(OTU.physeq, tax.physeq, meta.physeq)
+
+# remove empty taxa
+physeq_bar_plot <- prune_taxa(taxa_sums(physeq_bar_plot) > 0, physeq_bar_plot)
+physeq_bar_plot
+
+# -----------------------------
+# 6. Settings
+# -----------------------------
+my_colors <- c(
+  '#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c',
+  '#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99','#b15928',
+  "#CBD588", "#5F7FC7", "orange","#DA5724", "#508578", "#CD9BCD",
+  "#AD6F3B", "#673770","#D14285", "#652926", "#C84248",
+  "#8569D5", "#5E738F","#D1A33D", "#8A7C64", "#599861", "gray", "black"
+)
+
+my_level <- c("Phylum", "Family", "Genus")
+my_column <- "Fibrinogen_InflamStat"
+abund_filter <- 0.01
+
+dir.create("output/taxa", recursive = TRUE, showWarnings = FALSE)
+
+# -----------------------------
+# 7. BARPLOT LOOP (FIXED NORMALIZATION)
+# -----------------------------
+for (ml in my_level) {
+
+  print(ml)
+
+  taxa.summary <- physeq_bar_plot %>%
+    tax_glom(taxrank = ml, NArm = FALSE) %>%
+    transform_sample_counts(function(x) x / sum(x)) %>%
+    psmelt() %>%
+    group_by(.data[[my_column]], .data[[ml]]) %>%
+    summarise(Abundance.average = mean(Abundance), .groups = "drop")
+
+  colnames(taxa.summary)[1] <- my_column
+  colnames(taxa.summary)[2] <- ml
+
+  taxa.max <- taxa.summary %>%
+    group_by(.data[[ml]]) %>%
+    summarise(overall.max = max(Abundance.average), .groups = "drop")
+
+  taxa.mean <- taxa.summary %>%
+    group_by(.data[[ml]]) %>%
+    summarise(overall.mean = mean(Abundance.average), .groups = "drop")
+
+  physeq_meta <- merge(taxa.summary, taxa.max)
+  physeq_meta <- merge(physeq_meta, taxa.mean)
+
+  # -----------------------------
+  # FILTER + FIX (IMPORTANT)
+  # -----------------------------
+  physeq_meta_filtered <- physeq_meta %>%
+    filter(overall.max > abund_filter)
+
+  # 🔥 FIX: renormalize so bars sum to 1 again
+  physeq_meta_filtered <- physeq_meta_filtered %>%
+    group_by(.data[[my_column]]) %>%
+    mutate(Abundance.average = Abundance.average / sum(Abundance.average)) %>%
+    ungroup()
+
+  physeq_meta_filtered$my_column <- physeq_meta_filtered[[my_column]]
+  physeq_meta_filtered[[ml]] <- factor(physeq_meta_filtered[[ml]])
+
+  # -----------------------------
+  # PLOT
+  # -----------------------------
+  p <- ggplot(physeq_meta_filtered,
+              aes(x = my_column, y = Abundance.average, fill = .data[[ml]])) +
+    geom_bar(stat = "identity", position = position_stack(reverse = TRUE)) +
+    scale_fill_manual(values = my_colors) +
+    ylim(c(0, 1)) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+    ylab("Relative Abundance (renormalized)") +
+    xlab(my_column) +
+    ggtitle(paste0(ml, " (>", abund_filter * 100, "%)"))
+
+  print(p)
+
+  ggsave(
+    filename = paste0("output/taxa/", ml, "_BarPlot_", my_column, ".png"),
+    plot = p,
+    height = 5,
+    width = 4
+  )
+}
+```
+
+## Plot for haptoglobin: 
+
+```{r}
+library(qiime2R)
+library(phyloseq)
+library(dplyr)
+library(ggplot2)
+
+# -----------------------------
+# 1. Build phyloseq object
+# -----------------------------
+physeq <- qza_to_phyloseq(
+  features = "core-metrics-results-240bp/rarefied_table.qza",
+  tree = "rooted-tree.qza",
+  taxonomy = "taxonomy-240bp.qza",
+  metadata = "QIIME2_Blood_Metadata_02.27.26.txt"
+)
+
+# -----------------------------
+# 2. Extract tables
+# -----------------------------
+asv_table <- as.data.frame(otu_table(physeq), check.names = FALSE)
+taxonomy  <- as.data.frame(tax_table(physeq), check.names = FALSE)
+
+meta <- as.data.frame(sample_data(physeq))
+meta$Sample_ID <- rownames(meta)
+
+# -----------------------------
+# 3. Clean metadata
+# -----------------------------
+meta$Haptoglobin_InflamStat[meta$Haptoglobin_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Haptoglobin_InflamStat), ]
+meta$Haptoglobin_InflamStat <- droplevels(meta$Haptoglobin_InflamStat)
+
+meta$Fibrinogen_InflamStat[meta$Fibrinogen_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Fibrinogen_InflamStat), ]
+meta$Fibrinogen_InflamStat <- droplevels(meta$Fibrinogen_InflamStat)
+
+# -----------------------------
+# 4. Clean taxonomy
+# -----------------------------
+taxonomy[taxonomy == ""] <- NA
+
+tax.clean <- taxonomy
+tax.clean$Genus[is.na(tax.clean$Genus)] <- "Unassigned"
+tax.clean$Species[is.na(tax.clean$Species)] <- tax.clean$Genus[is.na(tax.clean$Species)]
+
+# -----------------------------
+# 5. Build phyloseq object
+# -----------------------------
+OTU.physeq <- otu_table(as.matrix(asv_table), taxa_are_rows = TRUE)
+tax.physeq <- tax_table(as.matrix(tax.clean))
+meta.physeq <- sample_data(meta)
+
+physeq_bar_plot <- phyloseq(OTU.physeq, tax.physeq, meta.physeq)
+
+# remove empty taxa
+physeq_bar_plot <- prune_taxa(taxa_sums(physeq_bar_plot) > 0, physeq_bar_plot)
+
+# -----------------------------
+# 6. Settings
+# -----------------------------
+my_colors <- c(
+  '#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c',
+  '#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99','#b15928',
+  "#CBD588", "#5F7FC7", "orange","#DA5724", "#508578", "#CD9BCD",
+  "#AD6F3B", "#673770","#D14285", "#652926", "#C84248",
+  "#8569D5", "#5E738F","#D1A33D", "#8A7C64", "#599861", "gray", "black"
+)
+
+my_level <- c("Phylum", "Family", "Genus")
+my_column <- "Haptoglobin_InflamStat"
+abund_filter <- 0.01
+
+dir.create("output/taxa", recursive = TRUE, showWarnings = FALSE)
+
+# -----------------------------
+# 7. BARPLOT LOOP (FIXED NORMALIZATION)
+# -----------------------------
+for (ml in my_level) {
+
+  print(ml)
+
+  taxa.summary <- physeq_bar_plot %>%
+    tax_glom(taxrank = ml, NArm = FALSE) %>%
+    transform_sample_counts(function(x) x / sum(x)) %>%
+    psmelt() %>%
+    group_by(.data[[my_column]], .data[[ml]]) %>%
+    summarise(Abundance.average = mean(Abundance), .groups = "drop")
+
+  colnames(taxa.summary)[1] <- my_column
+  colnames(taxa.summary)[2] <- ml
+
+  taxa.max <- taxa.summary %>%
+    group_by(.data[[ml]]) %>%
+    summarise(overall.max = max(Abundance.average), .groups = "drop")
+
+  taxa.mean <- taxa.summary %>%
+    group_by(.data[[ml]]) %>%
+    summarise(overall.mean = mean(Abundance.average), .groups = "drop")
+
+  physeq_meta <- merge(taxa.summary, taxa.max)
+  physeq_meta <- merge(physeq_meta, taxa.mean)
+
+  # -----------------------------
+  # FILTER + FIX (IMPORTANT)
+  # -----------------------------
+  physeq_meta_filtered <- physeq_meta %>%
+    filter(overall.max > abund_filter)
+
+  # 🔥 FIX: renormalize so bars sum to 1 again
+  physeq_meta_filtered <- physeq_meta_filtered %>%
+    group_by(.data[[my_column]]) %>%
+    mutate(Abundance.average = Abundance.average / sum(Abundance.average)) %>%
+    ungroup()
+
+  physeq_meta_filtered$my_column <- physeq_meta_filtered[[my_column]]
+  physeq_meta_filtered[[ml]] <- factor(physeq_meta_filtered[[ml]])
+
+  # -----------------------------
+  # PLOT
+  # -----------------------------
+  p <- ggplot(physeq_meta_filtered,
+              aes(x = my_column, y = Abundance.average, fill = .data[[ml]])) +
+    geom_bar(stat = "identity", position = position_stack(reverse = TRUE)) +
+    scale_fill_manual(values = my_colors) +
+    ylim(c(0, 1)) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank()) +
+    ylab("Relative Abundance (renormalized)") +
+    xlab(my_column) +
+    ggtitle(paste0(ml, " (>", abund_filter * 100, "%)"))
+
+  print(p)
+
+  ggsave(
+    filename = paste0("output/taxa/", ml, "_BarPlot_", my_column, ".png"),
+    plot = p,
+    height = 5,
+    width = 4
+  )
+}
+```
+## Sample ID
+
+```{r}
+# -----------------------------
+# 1. Build phyloseq object
+# -----------------------------
+physeq <- qza_to_phyloseq(
+  features = "core-metrics-results-240bp/rarefied_table.qza",
+  tree = "rooted-tree.qza",
+  taxonomy = "taxonomy-240bp.qza",
+  metadata = "QIIME2_Blood_Metadata_02.27.26.txt"
+)
+
+# -----------------------------
+# 2. Extract tables
+# -----------------------------
+asv_table <- as.data.frame(otu_table(physeq), check.names = FALSE)
+taxonomy  <- as.data.frame(tax_table(physeq), check.names = FALSE)
+
+meta <- as.data.frame(sample_data(physeq))
+meta$Sample_ID <- rownames(meta)
+
+# -----------------------------
+# 3. Filter metadata
+# -----------------------------
+meta$Haptoglobin_InflamStat[meta$Haptoglobin_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Haptoglobin_InflamStat), ]
+meta$Haptoglobin_InflamStat <- droplevels(meta$Haptoglobin_InflamStat)
+
+meta$Fibrinogen_InflamStat[meta$Fibrinogen_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Fibrinogen_InflamStat), ]
+meta$Fibrinogen_InflamStat <- droplevels(meta$Fibrinogen_InflamStat)
+
+# -----------------------------
+# 4. Clean taxonomy
+# -----------------------------
+taxonomy[taxonomy == ""] <- NA
+tax.clean <- taxonomy
+tax.clean$Genus[is.na(tax.clean$Genus)] <- "Unassigned"
+tax.clean$Species[is.na(tax.clean$Species)] <- tax.clean$Genus[is.na(tax.clean$Species)]
+
+# -----------------------------
+# 5. Build phyloseq object
+# -----------------------------
+OTU.physeq <- otu_table(as.matrix(asv_table), taxa_are_rows = TRUE)
+tax.physeq <- tax_table(as.matrix(tax.clean))
+meta.physeq <- sample_data(meta)
+
+physeq_bar_plot <- phyloseq(OTU.physeq, tax.physeq, meta.physeq)
+
+# keep only blood samples
+physeq_bar_plot <- subset_samples(physeq_bar_plot, Sample_Type == "Blood")
+physeq_bar_plot <- prune_taxa(taxa_sums(physeq_bar_plot) > 0, physeq_bar_plot)
+
+# -----------------------------
+# 6. Settings
+# -----------------------------
+my_colors <- c(
+  '#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c',
+  '#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99','#b15928',
+  "#CBD588", "#5F7FC7", "orange","#DA5724", "#508578", "#CD9BCD",
+  "#AD6F3B", "#673770","#D14285", "#652926", "#C84248",
+  "#8569D5", "#5E738F","#D1A33D", "#8A7C64", "#599861", "gray", "black"
+)
+
+my_level <- c("Phylum", "Family", "Genus")
+my_column <- "Sample_ID"
+abund_filter <- 0.01
+
+dir.create("output/taxa", recursive = TRUE, showWarnings = FALSE)
+
+# -----------------------------
+# 7. BARPLOT LOOP (TRUE RELATIVE ABUNDANCE)
+# -----------------------------
+for (ml in my_level) {
+
+  print(ml)
+
+  taxa.summary <- physeq_bar_plot %>%
+    tax_glom(taxrank = ml, NArm = FALSE) %>%
+    transform_sample_counts(function(x) x / sum(x)) %>%   # TRUE relative abundance
+    psmelt() %>%
+    group_by(.data[[my_column]], .data[[ml]]) %>%
+    summarise(Abundance = sum(Abundance), .groups = "drop")
+
+  colnames(taxa.summary)[1] <- my_column
+  colnames(taxa.summary)[2] <- ml
+
+  # optional filtering (ONLY for display)
+  taxa.summary <- taxa.summary %>%
+    group_by(.data[[ml]]) %>%
+    mutate(max_abund = max(Abundance)) %>%
+    ungroup() %>%
+    filter(max_abund > abund_filter)
+
+  taxa.summary[[ml]] <- factor(taxa.summary[[ml]])
+
+  # IMPORTANT: ggplot stacking already preserves proportions
+  p <- ggplot(taxa.summary,
+              aes(x = .data[[my_column]],
+                  y = Abundance,
+                  fill = .data[[ml]])) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = my_colors) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank()) +
+    ylab("Relative Abundance") +
+    xlab(my_column) +
+    ggtitle(paste0(ml, " (relative abundance)"))
+
+  print(p)
+
+  ggsave(
+    filename = paste0("output/taxa/", ml, "_BarPlot_", my_column, ".png"),
+    plot = p,
+    height = 5,
+    width = 4
+  )
+}
+```
+
