@@ -1,0 +1,568 @@
+---
+title: "Alpha_diversity"
+author: "Gabriela Puerres"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Alpha Diversity
+
+Libraries and packages
+
+```{r}
+#Install the packages, IF YOU NEED TO :)
+# install.packages("tidyverse")
+# install.packages("vegan")
+# install.packages("devtools")
+library(devtools)
+# devtools::install_github("jbisanz/qiime2R")
+library(tidyverse)
+library(vegan)
+library(qiime2R)
+library(ggpubr)
+
+##############################################
+#Set UP
+#
+#These are the things that  we need from Qiime:
+#
+#sample-metadata.tsv
+#core-metrics-results/bray_curtis_pcoa_results.qza
+#core-metrics-results/weighted_unifrac_pcoa_results.qza
+#core-metrics-results/rarefied_table.qza
+#rooted-tree.qza
+#taxonomy.qza
+#core-metrics-results/evenness_vector.qza
+#core-metrics-results/faith_pd_vector.qza
+#core-metrics-results/observed_otus_vector.qza
+#core-metrics-results/shannon_vector.qza
+#
+# These files are already in the ANSC516-repo
+##############################################
+
+getwd()
+###Set your working directory path/to/ANSC516/ANSC-repo/data/moving-pictures
+#setwd("C:/Users/diana/OneDrive/Escritorio/ANSC516-repo/data/moving-pictures")
+setwd("C:/Users/diana/OneDrive - purdue.edu/Master/Subjects/Spring 26/ANSC/PROJECT/7_QIIME2R/files")
+getwd()
+
+list.files()
+
+if(!dir.exists("output"))
+  dir.create("output")
+```
+
+```{r}
+# Load data
+
+meta<-read_q2metadata("QIIME2_Blood_Metadata_02.27.26.txt")
+str(meta)
+
+meta[1,]
+meta[,1]
+
+
+evenness = read_qza("core-metrics-results-240bp/evenness_vector.qza")
+evenness<-evenness$data %>% rownames_to_column("Sample_ID") # this moves the sample names to a new column that matches the metadata and allows them to be merged
+
+observed_features = read_qza("core-metrics-results-240bp/observed_features_vector.qza")
+observed_features<-observed_features$data %>% rownames_to_column("Sample_ID")
+
+shannon = read_qza("core-metrics-results-240bp/shannon_vector.qza")
+shannon<-shannon$data %>% rownames_to_column("Sample_ID") 
+
+faith_pd = read_qza("core-metrics-results-240bp/faith_pd_vector.qza")
+faith_pd<-faith_pd$data %>% rownames_to_column("Sample_ID")
+faith_pd$Sample_ID <- faith_pd$V1
+faith_pd <- rename(faith_pd, Faith_PD = V2)
+
+
+#observed_features$observed_features_num <- lapply(observed_features$observed_features, as.numeric)
+#observed_features$observed_features <- as.numeric(observed_features$observed_features)
+str(observed_features)
+
+
+
+###Alpha Diversity tables
+# These tables will be merged for convenience and added to the 
+# metadata table as the original tutorial was organized.
+
+alpha_diversity = merge(x=faith_pd, y=evenness, by.x = "Sample_ID", by.y = "Sample_ID")
+alpha_diversity = merge(alpha_diversity, observed_features, by.x = "Sample_ID", by.y = "Sample_ID")
+alpha_diversity = merge(alpha_diversity, shannon, by.x = "Sample_ID", by.y = "Sample_ID")
+meta = merge(meta, alpha_diversity, by.x = "SampleID", by.y = "Sample_ID")
+row.names(meta) <- meta$SampleID
+#meta = meta[,-1]
+str(meta)
+
+
+#Alpha-diversity
+# Alpha-diversity is within sample diversity. It is how many 
+# different species (OTUs) are in each sample (richness) and how 
+# evenly they are distributed (evenness), which together are diversity. 
+# Each sample has one value for each metric.
+```
+Plots alpha diversity
+```{r}
+
+#Alpha-diversity
+# Alpha-diversity is within sample diversity. It is how many 
+# different species (OTUs) are in each sample (richness) and how 
+# evenly they are distributed (evenness), which together are diversity. 
+# Each sample has one value for each metric.
+
+
+##Explore alpha metrics
+# Now we will start to look at our data. We will first start with 
+# alpha-diversity and richness. 
+#
+# You want the data to be roughly normal so that you can run ANOVA 
+# or t-tests. If it is not normally distributed, you will need to 
+# consider if you should normalize the data or usenon-parametric 
+# tests such as Kruskal-Wallis.
+
+# Here, we see that none of the data are normally distributed, 
+# with the exception of "Faith" and "Observed Features".
+
+
+#Plots
+hist(meta$shannon_entropy, main="Shannon diversity", xlab="", breaks=10)
+hist(meta$Faith_PD, main="Faith phylogenetic diversity", xlab="", breaks=10)
+hist(meta$pielou_e, main="Evenness", xlab="", breaks=10)
+hist(as.numeric(meta$observed_features), main="Observed Features", xlab="", breaks=10)
+
+#Plots the qq-plot for residuals
+ggqqplot(meta$shannon_entropy, title = "Shannon")
+ggqqplot(meta$Faith_PD, title = "Faith PD")
+ggqqplot(meta$pielou_e, title = "Evenness")
+ggqqplot(meta$observed_features, title = "Observed Features")
+
+
+
+# To test for normalcy statistically, we can run the Shapiro-Wilk 
+# test of normality.
+
+shapiro.test(meta$shannon)
+shapiro.test(meta$Faith_PD)
+shapiro.test(meta$pielou_e)
+shapiro.test(meta$observed_features)
+
+# The null hypothesis of these tests is that “sample distribution 
+# is normal”. If the test is significant, the distribution is non-normal.
+
+# We see that, as expected from the graphs, shannon and evenness 
+# are normally distributed.
+
+
+#Overall, for alpha-diversity:
+
+# ANOVA, t-test, or general linear models with the normal distribution 
+# are used when the data is roughly normal. Transforming the data to 
+# achieve a normal distribution could also be completed.
+#
+# Kruskal-Wallis, Wilcoxon rank sum test, or general linear models 
+# with another distribution are used when the data is not normal or if 
+# the n is low, like less than 30.
+
+# Our main variables of interest are
+
+# body site: gut, tongue, right palm, left palm
+# subject: 1 and 2
+# month-year: 10-2008, 1-2009, 2-2009, 3-2009, 4-2009
+
+## Categorical variables
+# Now that we know which tests can be used, let's run them. 
+
+## Normally distributed metrics
+
+# Since it's the closest to normalcy, we will use **Evenness** as an 
+#example. First, we will test body site, which is a categorical variable 
+# with more than 2 levels. Thus, we run ANOVA. If age were only two 
+# levels, we could run a t-test
+
+
+```
+Does the inflammation affects the microbiome? 
+```{r}
+
+# Does inflammation impact the Evenness of the microbiota?
+
+#Run the ANOVA and save it as an object
+aov.evenness.Haptoglobin_InflamStat = aov(pielou_evenness ~ Haptoglobin_InflamStat, data=meta)
+#Call for the summary of that ANOVA, which will include P-values
+summary(aov.evenness.Haptoglobin_InflamStat)
+
+# Fibrinogen
+aov.evenness.Fibrinogen_InflamStat = aov(pielou_evenness ~ Fibrinogen_InflamStat, data=meta)
+summary(aov.evenness.Fibrinogen_InflamStat)
+
+#To do all the pairwise comparisons between groups and correct for multiple comparisons, we run Tukey's honest significance test of our ANOVA.
+
+TukeyHSD(aov.evenness.Haptoglobin_InflamStat)
+TukeyHSD(aov.evenness.Fibrinogen_InflamStat)
+
+# We clearly see that the evenness between hands and gut are different. 
+# When we plot the data, we see that evenness decreases in the gut 
+# compared to palms.
+
+levels(meta$Haptoglobin_InflamStat)
+meta$Haptoglobin_InflamStat[meta$Haptoglobin_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Haptoglobin_InflamStat), ]
+meta$Haptoglobin_InflamStat <- droplevels(meta$Haptoglobin_InflamStat)
+levels(meta$Haptoglobin_InflamStat)
+table(meta$Haptoglobin_InflamStat)
+
+
+levels(meta$Fibrinogen_InflamStat)
+meta$Fibrinogen_InflamStat[meta$Fibrinogen_InflamStat == ""] <- NA
+meta <- meta[!is.na(meta$Fibrinogen_InflamStat), ]
+meta$Fibrinogen_InflamStat <- droplevels(meta$Fibrinogen_InflamStat)
+levels(meta$Fibrinogen_InflamStat)
+table(meta$Fibrinogen_InflamStat)
+
+# Palette
+values = c("Normal" = "#4CAF50",  "Elevated" = "#E64B35")
+
+#Plot
+boxplot(pielou_evenness ~ Haptoglobin_InflamStat, data=meta, ylab="Pielou evenness")
+boxplot(pielou_evenness ~ Fibrinogen_InflamStat, data=meta, ylab="Pielou evenness")
+
+
+evenness_boxplot_hp <- ggplot(meta, aes(Haptoglobin_InflamStat, pielou_evenness, fill = Haptoglobin_InflamStat)) + 
+  geom_boxplot() + 
+  scale_fill_manual(values = values) +
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  theme(axis.text.x = element_text(hjust = 1, vjust = 0.5),
+        legend.position =  "none")
+
+evenness_boxplot_fib <- ggplot(meta, aes(Fibrinogen_InflamStat, pielou_evenness, fill = Fibrinogen_InflamStat)) + 
+  geom_boxplot() + 
+  scale_fill_manual(values = values) +
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  theme(axis.text.x = element_text(hjust = 1, vjust = 0.5),
+        legend.title = element_blank())
+
+evenness_boxplot <- evenness_boxplot_hp + evenness_boxplot_fib +
+  plot_annotation(tag_levels = "A")
+
+evenness_boxplot
+
+ggsave("output/evenness_boxplot.png", evenness_boxplot, height = 3, width = 3)
+
+# Now, the above graph is kind of not correct. Our test and our graphic do not exactly match. ANOVA and Tukey are tests based on the mean, but the boxplot plots the median. Its not wrong, its just not the best method. Unfortunately plotting the average and standard deviation is a little complicated.
+
+evenness_summary <- meta %>% # the names of the new data frame and the data frame to be summarised
+  group_by(Haptoglobin_InflamStat) %>%   # the grouping variable
+  summarise(mean_evenness = mean(pielou_evenness),  # calculates the mean of each group
+            sd_evenness = sd(pielou_evenness), # calculates the standard deviation of each group
+            n_evenness = n(),  # calculates the sample size per group
+            se_evenness = sd(pielou_evenness)/sqrt(n())) # calculates the standard error of each group
+evenness_summary_fib <- meta %>% 
+  group_by(Fibrinogen_InflamStat) %>%  
+  summarise(mean_evenness = mean(pielou_evenness),  
+            sd_evenness = sd(pielou_evenness), 
+            n_evenness = n(),  
+            se_evenness = sd(pielou_evenness)/sqrt(n())) 
+
+# We can now make a bar plot of means vs body site, with standard 
+# deviations or standard errors as the error bar. The following code 
+# uses the standard deviations.
+
+evenness_se <- ggplot(evenness_summary, aes(Haptoglobin_InflamStat, mean_evenness, fill = Haptoglobin_InflamStat)) + 
+  geom_col() + 
+  geom_errorbar(aes(ymin = mean_evenness - se_evenness, ymax = mean_evenness + se_evenness), width=0.2) + 
+  theme_q2r() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme(legend.title = element_blank()) +
+  labs(y="Pielou's evenness  ± s.e.", x = "") 
+
+ggsave("output/evenness_se.png", evenness_se, height = 2.5, width = 3)
+
+
+```
+
+## Pielou
+
+```{r}
+## **Non-normally distributed metrics**
+
+# We will use **Faith's phylogenetic diversity** here. Since body site 
+# is categorical, we use Kruskal-Wallis (non-parametric equivalent of 
+# ANOVA). If we have only two levels, we would run Wilcoxon rank sum 
+# test (non-parametric equivalent of t-test)
+
+kruskal.test(pielou_evenness ~ Haptoglobin_InflamStat , data=meta)
+kruskal.test(pielou_evenness ~ Fibrinogen_InflamStat , data=meta)
+
+# We can test pairwise within the age groups with Wilcoxon Rank Sum 
+# Tests. This test has a slightly different syntax than our other tests
+
+pairwise.wilcox.test(meta$pielou_evenness, meta$Haptoglobin_InflamStat , p.adjust.method="BH")
+pairwise.wilcox.test(meta$pielou_evenness, meta$Fibrinogen_InflamStat , p.adjust.method="BH")
+
+# Like evenness, we see that pd also increases with age.
+
+#Plot
+boxplot(pielou_evenness ~ Haptoglobin_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+boxplot(pielou_evenness ~ Fibrinogen_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+
+# or with ggplot2
+
+pielou_evenness_boxplot_hp <- ggplot(meta, aes(Haptoglobin_InflamStat , pielou_evenness, fill = Haptoglobin_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text(hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  labs(y="Pielou Evenness", x = "") 
+
+pielou_evenness_boxplot_fb <- ggplot(meta, aes(Fibrinogen_InflamStat , pielou_evenness, fill = Fibrinogen_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text( hjust = 1, vjust = 0.5)) +
+  theme(legend.title = element_blank()) +
+  labs(y="Pielou Evenness", x = "") 
+
+pielou_evenness_boxplot <- pielou_evenness_boxplot_hp + pielou_evenness_boxplot_fb +
+  plot_annotation(tag_levels = "A")
+
+ggsave("output/pielou_evenness_boxplot.png", pielou_evenness_boxplot, height = 3, width = 3)
+```
+
+## Faith_PD 
+```{r}
+
+## **Non-normally distributed metrics**
+
+# We will use **Faith's phylogenetic diversity** here. Since body site 
+# is categorical, we use Kruskal-Wallis (non-parametric equivalent of 
+# ANOVA). If we have only two levels, we would run Wilcoxon rank sum 
+# test (non-parametric equivalent of t-test)
+
+kruskal.test(Faith_PD ~ Haptoglobin_InflamStat , data=meta)
+kruskal.test(Faith_PD ~ Fibrinogen_InflamStat , data=meta)
+
+# We can test pairwise within the age groups with Wilcoxon Rank Sum 
+# Tests. This test has a slightly different syntax than our other tests
+
+pairwise.wilcox.test(meta$Faith_PD, meta$Haptoglobin_InflamStat , p.adjust.method="BH")
+pairwise.wilcox.test(meta$Faith_PD, meta$Fibrinogen_InflamStat , p.adjust.method="BH")
+
+# Like evenness, we see that pd also increases with age.
+
+#Plot
+boxplot(Faith_PD ~ Haptoglobin_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+boxplot(Faith_PD ~ Fibrinogen_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+
+# or with ggplot2
+
+faith_pd_boxplot_hp <- ggplot(meta, aes(Haptoglobin_InflamStat , Faith_PD, fill = Haptoglobin_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text( hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  labs(y="Faith Phylogenetic Diversity", x = "") 
+
+faith_pd_boxplot_fb <- ggplot(meta, aes(Fibrinogen_InflamStat , Faith_PD, fill = Fibrinogen_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text(hjust = 1, vjust = 0.5)) +
+  theme(legend.title = element_blank()) +
+  labs(y="Faith Phylogenetic Diversity", x = "") 
+
+faith_pd_boxplot <- faith_pd_boxplot_hp + faith_pd_boxplot_fb +
+  plot_annotation(tag_levels = "A")
+
+ggsave("output/pd.png", faith_pd_boxplot, height = 3, width = 3)
+
+
+faith_summary <- meta %>% # the names of the new data frame and the data frame to be summarised
+  group_by(Haptoglobin_InflamStat) %>%   # the grouping variable
+  summarise(mean_evenness = mean(Faith_PD),  # calculates the mean of each group
+            sd_evenness = sd(Faith_PD), # calculates the standard deviation of each group
+            n_evenness = n(),  # calculates the sample size per group
+            se_evenness = sd(Faith_PD)/sqrt(n())) # calculates the standard error of each group
+faith_summary_fib <- meta %>% 
+  group_by(Fibrinogen_InflamStat) %>%  
+  summarise(mean_evenness = mean(Faith_PD),  
+            sd_evenness = sd(Faith_PD), 
+            n_evenness = n(),  
+            se_evenness = sd(Faith_PD)/sqrt(n())) 
+
+
+
+##Continuous variables
+# For continuous variables, we use general linear models, specifying 
+# the distribution that best fits our data.
+
+# **Normally distributed metrics**
+
+# Since Haptoglobin_InflamStat is a continuous variable, we run a 
+# general linear model. We will again use evenness as our roughly normal 
+# metric. The default of `glm` and `lm` is the normal distribution so we 
+# don't have to specify anything.
+
+# Does Haptoglobin_InflamStat impact evenness of the microbiota?
+
+glm.evenness.time = glm(pielou_evenness ~ Haptoglobin_InflamStat, data=meta)
+summary(glm.evenness.time)
+
+#The output let's us know that the intercept of our model is significantly different from 0 but our slope (*e.g.* our variable of interest) is not. This makes sense when we look at the data.
+
+plot(pielou_evenness ~ Haptoglobin_InflamStat, data=meta)
+#Add the glm best fit line
+plot(pielou_evenness ~ Haptoglobin_InflamStat, data=meta) + abline(glm.evenness.time)
+
+# **Non-normally distributed metrics**
+
+# We will again use a *general linear model* for our non-normally 
+# distributed metric Faith_pd. However, this time, we change the 
+# distribution from normal to something that fits the data better. 
+
+# But which distribution should we choose? In statistics, there is no 
+# one "best" model. There are only good and better models. We will use 
+# the plot() function to compare two models and pick the better one.
+
+# First, the Gaussian (normal) distribution, which we already know is a bad fit.
+
+gaussian.faith.time = glm(Faith_PD ~ Haptoglobin_InflamStat, data=meta, family="gaussian")
+plot(gaussian.faith.time, which=c(1,2))
+
+# Quasipoisson (log) distribution
+qp.faith.time = glm(Faith_PD ~ Haptoglobin_InflamStat, data=meta, family="quasipoisson")
+plot(qp.faith.time, which=c(1,2))
+
+# What we're looking for is no pattern in the Residuals vs. Fitted graph 
+# ("stars in the sky"), which shows that we picked a good distribution 
+# family to fit our data. We also want our residuals to be normally 
+# distributed, which is shown by most/all of the points falling on the 
+# line in the Normal Q-Q plot.
+
+# While it's still not perfect, the quasipoisson fits much better. 
+# In the residuals vs fitted graph, the y axis is from -2 to 4  whereas 
+# the axis with gaussian was from -5 to 10. So, we will use quasipoisson 
+# and see that ADG does not to correlate to Chao richness.
+summary(qp.faith.time)
+
+# Plotting this we see that, indeed, there is a trend toward correlation between Faith_pd and Haptoglobin_InflamStat
+
+#Plot
+plot(log(Faith_PD) ~ Haptoglobin_InflamStat, data=meta, ylab="ln(Faith Phylo. Diversity)")
+plot(log(Faith_PD) ~ Haptoglobin_InflamStat, data=meta, ylab="ln(Faith Phylo. Diversity)") + abline(qp.faith.time)
+
+
+```
+## Shannon
+```{r}
+## **Non-normally distributed metrics**
+
+# We will use **Faith's phylogenetic diversity** here. Since body site 
+# is categorical, we use Kruskal-Wallis (non-parametric equivalent of 
+# ANOVA). If we have only two levels, we would run Wilcoxon rank sum 
+# test (non-parametric equivalent of t-test)
+
+kruskal.test(shannon_entropy ~ Haptoglobin_InflamStat , data=meta)
+kruskal.test(shannon_entropy ~ Fibrinogen_InflamStat , data=meta)
+
+# We can test pairwise within the age groups with Wilcoxon Rank Sum 
+# Tests. This test has a slightly different syntax than our other tests
+
+pairwise.wilcox.test(meta$shannon_entropy, meta$Haptoglobin_InflamStat , p.adjust.method="BH")
+pairwise.wilcox.test(meta$shannon_entropy, meta$Fibrinogen_InflamStat , p.adjust.method="BH")
+
+# Like evenness, we see that pd also increases with age.
+
+#Plot
+boxplot(shannon_entropy ~ Haptoglobin_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+boxplot(shannon_entropy ~ Fibrinogen_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+
+# or with ggplot2
+
+shannon_entropy_boxplot_hp <- ggplot(meta, aes(Haptoglobin_InflamStat , shannon_entropy, fill = Haptoglobin_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text(hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  labs(y="Shannon", x = "") 
+
+shannon_entropy_boxplot_fb <- ggplot(meta, aes(Fibrinogen_InflamStat , shannon_entropy, fill = Fibrinogen_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text( hjust = 1, vjust = 0.5)) +
+  theme(legend.title = element_blank()) +
+  labs(y="Shannon", x = "") 
+
+shannon_entropy_boxplot <- shannon_entropy_boxplot_hp + shannon_entropy_boxplot_fb +
+  plot_annotation(tag_levels = "A")
+
+ggsave("output/pd.png", faith_pd_boxplot, height = 3, width = 3)
+
+```
+
+## Observed Features
+```{r}
+## **Non-normally distributed metrics**
+
+# We will use **Faith's phylogenetic diversity** here. Since body site 
+# is categorical, we use Kruskal-Wallis (non-parametric equivalent of 
+# ANOVA). If we have only two levels, we would run Wilcoxon rank sum 
+# test (non-parametric equivalent of t-test)
+
+kruskal.test(observed_features ~ Haptoglobin_InflamStat , data=meta)
+kruskal.test(observed_features ~ Fibrinogen_InflamStat , data=meta)
+
+# We can test pairwise within the age groups with Wilcoxon Rank Sum 
+# Tests. This test has a slightly different syntax than our other tests
+
+pairwise.wilcox.test(meta$observed_features, meta$Haptoglobin_InflamStat , p.adjust.method="BH")
+pairwise.wilcox.test(meta$observed_features, meta$Fibrinogen_InflamStat , p.adjust.method="BH")
+
+# Like evenness, we see that pd also increases with age.
+
+#Plot
+boxplot(observed_features ~ Haptoglobin_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+boxplot(observed_features ~ Fibrinogen_InflamStat , data=meta, ylab="Faith phylogenetic diversity")
+
+# or with ggplot2
+
+observed_features_boxplot_hp <- ggplot(meta, aes(Haptoglobin_InflamStat , observed_features, fill = Haptoglobin_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text(hjust = 1, vjust = 0.5)) +
+  theme(legend.position = "none") +
+  labs(y="Observed features (richness)", x = "") 
+
+observed_features_boxplot_fb <- ggplot(meta, aes(Fibrinogen_InflamStat , observed_features, fill = Fibrinogen_InflamStat)) + 
+  geom_boxplot() + 
+  #ylim(c(0.5,1)) +
+  theme_q2r() +
+  scale_fill_manual(values = values) +
+  theme(axis.text.x = element_text( hjust = 1, vjust = 0.5)) +
+  theme(legend.title = element_blank()) +
+  labs(y="Observed features (richness)", x = "") 
+
+observed_features_boxplot <- observed_features_boxplot_hp + observed_features_boxplot_fb +
+  plot_annotation(tag_levels = "A")
+
+ggsave("output/observed_features_boxplot.png", faith_pd_boxplot, height = 3, width = 3)
+
+```
