@@ -1,0 +1,15 @@
+Start time
+28 February 2026 01:46:05
+Job started on Sat Feb 28 01:46:05 EST 2026
+Running on node: a385.negishi.rcac.purdue.edu
+CPUs allocated: 40
+/depot/islizovs/shared/projects/Cow_Inflammation_Study_Blood_Slizovskiy_Project_004/07_QIIME2
+dada2
+Saved FeatureTable[Frequency] to: table-240bp.qza
+Saved FeatureData[Sequence] to: rep-seqs-240bp.qza
+Saved SampleData[DADA2Stats] to: stats-dada2-240bp.qza
+Saved Visualization to: stats-dada2-240bp.qzv
+Saved Visualization to: table-240bp.qzv
+Saved Visualization to: rep-seqs-240bp.qzv
+End time
+28 February 2026 03:01:59

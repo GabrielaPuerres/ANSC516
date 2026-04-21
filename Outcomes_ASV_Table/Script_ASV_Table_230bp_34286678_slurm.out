@@ -1,0 +1,17 @@
+Start time
+28 February 2026 00:01:28
+Job started on Sat Feb 28 00:01:28 EST 2026
+Running on node: a141.negishi.rcac.purdue.edu
+CPUs allocated: 40
+/depot/islizovs/shared/projects/Cow_Inflammation_Study_Blood_Slizovskiy_Project_004/07_QIIME2
+Imported Manifest_Blood_Microbiome.txt as PairedEndFastqManifestPhred33V2 to Final_demux-paired-end.qza
+Saved Visualization to: Final_demux-paired-end.qzv
+dada2
+Saved FeatureTable[Frequency] to: table-230bp.qza
+Saved FeatureData[Sequence] to: rep-seqs-230bp.qza
+Saved SampleData[DADA2Stats] to: stats-dada2-230bp.qza
+Saved Visualization to: stats-dada2-230bp.qzv
+Saved Visualization to: table-230bp.qzv
+Saved Visualization to: rep-seqs-230bp.qzv
+End time
+28 February 2026 01:45:57
